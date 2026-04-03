@@ -89,6 +89,10 @@ See **[ACCESS.md](./ACCESS.md)** for DM policies, group configuration, mention d
 
 Quick reference: LINE user IDs start with `U`, group IDs with `C`, room IDs with `R`. Default policy is `allowlist` — messages from unknown users are dropped silently.
 
+> **⚠️ Security trap:** `allowFrom: []` (empty array) does **not** mean "block everyone" — it means **allow everyone**. The check is skipped when the list is empty. Always put at least one user ID in `allowFrom` before exposing the webhook publicly, or set `dmPolicy: "disabled"` to block all DMs until you're ready.
+
+> **⚠️ Machine access:** Claude Code has full access to your machine. Treat the LINE bot's `allowFrom` list the same way you'd treat SSH authorized keys — only add LINE user IDs you trust completely.
+
 ## Tools exposed to the assistant
 
 | Tool | Purpose |
@@ -110,6 +114,17 @@ To run multiple Claude Code sessions sharing one LINE channel, use `examples/lin
 
 LINE_CHANNEL_SECRET=<secret> bun examples/line-router.ts
 ```
+
+## Known limitations and gotchas
+
+Things we discovered running this in production:
+
+- **LINE only allows one webhook URL per channel.** If you want multiple Claude Code sessions to share one LINE channel (e.g. one session per group), use `examples/line-router.ts` to fan out the webhook to each session's port. Without it, only one session receives messages.
+- **Reply tokens expire in 30 seconds.** The plugin uses the free Reply API for the first response after each inbound message, then falls back to the paid Push API. If Claude takes more than 30 s to respond, the reply costs Push API quota.
+- **LINE has no message history API.** The bot only sees messages that arrive while it is running. If the session restarts, prior conversation context is lost unless you handle it yourself (e.g. by reading `history.log`).
+- **Bot must be a friend before users can DM it.** LINE does not allow DMs to bots unless the user has added the bot as a friend first.
+- **Mention detection requires the bot's user ID**, which is fetched asynchronously on startup. The webhook returns HTTP 503 for a few seconds during this window — LINE will retry automatically.
+- **Group IDs vs room IDs:** Multi-person chats started from a group have IDs starting with `C`; chats started from a direct invitation (rooms) start with `R`. They are different and must be configured separately in `access.json`.
 
 ## Security
 
