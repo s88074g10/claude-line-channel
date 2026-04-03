@@ -134,6 +134,11 @@ const MESSAGE_CACHE = new Map<string, { text: string; userId: string; ts: string
 const CACHE_MAX = 200
 const MSG_TEXT_LIMIT = 1000 // truncate stored text to avoid excessive heap usage
 
+// chat_ids that have sent at least one delivered message this session.
+// reply tool only accepts chat_ids in this set to prevent prompt injection
+// from directing Claude to send messages to arbitrary LINE users.
+const KNOWN_CHAT_IDS = new Set<string>()
+
 function cacheMessage(id: string, text: string, userId: string, ts: string): void {
   MESSAGE_CACHE.set(id, { text: text.slice(0, MSG_TEXT_LIMIT), userId, ts })
   if (MESSAGE_CACHE.size > CACHE_MAX) {
@@ -198,6 +203,12 @@ async function fetchBotUserId(): Promise<void> {
     process.stderr.write('line channel: could not fetch bot info: ' + e + '\n')
   } finally {
     botInitialized = true
+    if (!BOT_USER_ID) {
+      process.stderr.write(
+        'line channel: warning: bot user ID unavailable — structured @mention detection disabled, ' +
+        'falling back to mentionPatterns only\n',
+      )
+    }
   }
 }
 
@@ -262,7 +273,15 @@ async function replyText(chatId: string, text: string, chunkLimit: number, chunk
     })
     REPLY_TOKENS.delete(chatId) // reply tokens are single-use
     if (res.ok) {
-      if (chunks.length > 5) await pushText(chatId, chunks.slice(5).join('\n'), chunkLimit, chunkMode)
+      if (chunks.length > 5) {
+        try {
+          await pushText(chatId, chunks.slice(5).join('\n'), chunkLimit, chunkMode)
+        } catch (pushErr) {
+          // First ≤5 chunks already delivered — don't let the caller retry and duplicate them.
+          // Propagate a descriptive error so Claude can inform the user that the message was truncated.
+          throw new Error('partial send: first chunk(s) delivered via Reply API, but push for remaining chunks failed: ' + pushErr)
+        }
+      }
       return
     }
     process.stderr.write('line channel: reply token failed (' + res.status + '), falling back to push\n')
@@ -281,10 +300,13 @@ function splitText(text: string, limit: number, mode: 'length' | 'newline'): str
       const para  = rest.lastIndexOf('\n\n', limit)
       const line  = rest.lastIndexOf('\n',   limit)
       const space = rest.lastIndexOf(' ',    limit)
-      cut = para  > 0 ? para
-          : line  > 0 ? line
-          : space > 0 ? space
-          : limit
+      // Use >= 0 (found anywhere), but clamp to at least 1 to avoid producing
+      // an empty first chunk when the break point happens to be at index 0.
+      const best = para  >= 0 ? para
+                 : line  >= 0 ? line
+                 : space >= 0 ? space
+                 : -1
+      cut = best > 0 ? best : limit
     }
     out.push(rest.slice(0, cut))
     rest = rest.slice(cut).replace(/^\n+/, '')
@@ -461,6 +483,18 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
       case 'reply': {
         const chat_id = args.chat_id as string
         const text    = args.text as string
+        // Only allow replying to chat_ids that have sent a message this session.
+        // Prevents prompt injection from directing Claude to message arbitrary LINE users.
+        if (!KNOWN_CHAT_IDS.has(chat_id)) {
+          return {
+            content: [{
+              type: 'text',
+              text: 'reply rejected: chat_id "' + chat_id + '" has not sent a message in this session. ' +
+                    'Only reply to chat_ids received from inbound notifications.',
+            }],
+            isError: true,
+          }
+        }
         const access  = loadAccess()
         const limit   = access.textChunkLimit ?? 5000
         const mode    = access.chunkMode ?? 'newline'
@@ -557,14 +591,16 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
 
         const expiry = Math.floor(Date.now() / 1000) + expire_minutes * 60
         const headers = { 'Content-Type': 'application/json' }
-        await fetch(`https://api.gofile.io/contents/${up.parentFolder}/update`, {
+        const pwRes = await fetch(`https://api.gofile.io/contents/${up.parentFolder}/update`, {
           method: 'PUT', headers,
           body: JSON.stringify({ token: up.guestToken, attribute: 'password', attributeValue: pw }),
         })
-        await fetch(`https://api.gofile.io/contents/${up.parentFolder}/update`, {
+        if (!pwRes.ok) throw new Error('gofile: failed to set password: ' + await pwRes.text())
+        const expRes = await fetch(`https://api.gofile.io/contents/${up.parentFolder}/update`, {
           method: 'PUT', headers,
           body: JSON.stringify({ token: up.guestToken, attribute: 'expiry', attributeValue: expiry }),
         })
+        if (!expRes.ok) throw new Error('gofile: failed to set expiry: ' + await expRes.text())
         return {
           content: [{
             type: 'text',
@@ -611,6 +647,9 @@ async function handleInbound(event: LineMessageEvent): Promise<void> {
 
   if (event.replyToken) storeReplyToken(chat_id, event.replyToken)
   if (result.action === 'drop') return
+
+  // Register chat_id as known so the reply tool can validate it
+  KNOWN_CHAT_IDS.add(chat_id)
 
   if (event.message.markAsReadToken) {
     void markAsRead(event.message.markAsReadToken).catch(() => {})
@@ -681,7 +720,13 @@ const httpServer = Bun.serve({
       return new Response('Unauthorized', { status: 401 })
     }
 
-    const payload = JSON.parse(rawBody) as LineWebhookPayload
+    let payload: LineWebhookPayload
+    try {
+      payload = JSON.parse(rawBody) as LineWebhookPayload
+    } catch {
+      process.stderr.write('line channel: malformed JSON in webhook payload\n')
+      return new Response('Bad Request', { status: 400 })
+    }
     for (const event of payload.events) {
       if (event.type !== 'message') continue
       handleInbound(event).catch(e =>
