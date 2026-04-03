@@ -123,7 +123,21 @@ claude --dangerously-load-development-channels server:line
 }
 ```
 
-`requireMention: true` 表示只有在群組內 @ 機器人時才會回應。設為 `false` 則回應每一則訊息。
+`requireMention: true` 表示只有在群組內 @ 機器人時才會回應。如果無法 @（例如某些舊版 LINE 用戶端），也可以透過關鍵字觸發，在 `mentionPatterns` 加入 regex：
+
+```json
+{
+  "groups": {
+    "Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": {
+      "requireMention": true,
+      "allowFrom": []
+    }
+  },
+  "mentionPatterns": ["^Claude", "\\bclaudebot\\b"]
+}
+```
+
+訊息符合任一 pattern 就視同被提及。設為 `requireMention: false` 則回應群組內每一則訊息。
 
 **自訂 Claude 的行為**
 

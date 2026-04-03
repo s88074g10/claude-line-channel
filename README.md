@@ -123,7 +123,21 @@ Add the bot as a friend on LINE and send a message. Claude receives it and repli
 }
 ```
 
-With `requireMention: true`, Claude only responds when @mentioned in the group. Set it to `false` to respond to every message.
+With `requireMention: true`, Claude only responds when @mentioned in the group. If @mention isn't available (e.g. older LINE clients), you can also trigger it with a keyword by adding `mentionPatterns`:
+
+```json
+{
+  "groups": {
+    "Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": {
+      "requireMention": true,
+      "allowFrom": []
+    }
+  },
+  "mentionPatterns": ["^Claude", "\\bclaudebot\\b"]
+}
+```
+
+Any message matching one of the regex patterns counts as a mention. Set `requireMention: false` to respond to every message in the group.
 
 **Customizing Claude's behavior**
 
