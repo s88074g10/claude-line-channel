@@ -1,4 +1,4 @@
-# LINE
+# LINE Channel for Claude Code
 
 [繁體中文](./README.zh-TW.md) | English
 
