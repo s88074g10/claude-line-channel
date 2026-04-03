@@ -544,7 +544,14 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         const form = new FormData()
         form.append('file', fileBlob, fname)
 
-        const upRes = await fetch('https://store1.gofile.io/contents/uploadfile', { method: 'POST', body: form })
+        // Get the best available upload server dynamically
+        const serverRes = await fetch('https://api.gofile.io/servers')
+        if (!serverRes.ok) throw new Error('gofile: could not get upload server')
+        const serverData = (await serverRes.json() as any).data
+        const uploadServer = serverData.servers?.[0]?.name
+        if (!uploadServer) throw new Error('gofile: no upload server available')
+
+        const upRes = await fetch(`https://${uploadServer}.gofile.io/contents/uploadfile`, { method: 'POST', body: form })
         if (!upRes.ok) throw new Error('gofile upload failed: ' + await upRes.text())
         const up = (await upRes.json() as any).data
 

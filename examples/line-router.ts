@@ -32,7 +32,6 @@ const LISTEN_PORT = 3456
 
 /** .env files to search for LINE_CHANNEL_SECRET if not set in environment. */
 const ENV_PATHS = [
-  `${process.env.HOME}/.claude/channels/line-dm/.env`,
   `${process.env.HOME}/.claude/channels/line/.env`,
 ]
 
