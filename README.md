@@ -96,6 +96,48 @@ To find your LINE user ID: add the bot as a friend and send it any message. Chec
 
 > Steps 5–7 assume you run Claude from a dedicated directory (`~/my-line-bot/`). The `CLAUDE.md` in that directory is loaded automatically on session start.
 
+## Usage
+
+Once setup is complete, Claude Code runs as a persistent session that listens for LINE messages.
+
+**DMs**
+
+Add the bot as a friend on LINE and send a message. Claude receives it and replies in the same chat. That's it.
+
+**Groups**
+
+1. Add the bot to a LINE group.
+2. The bot's group ID will appear in `~/.claude/channels/line/unknown-groups.log` on first message.
+3. Add it to `access.json` under `groups`:
+
+```json
+{
+  "dmPolicy": "allowlist",
+  "allowFrom": ["Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"],
+  "groups": {
+    "Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": {
+      "requireMention": true,
+      "allowFrom": []
+    }
+  }
+}
+```
+
+With `requireMention: true`, Claude only responds when @mentioned in the group. Set it to `false` to respond to every message.
+
+**Customizing Claude's behavior**
+
+Copy `examples/CLAUDE.md` to your working directory and edit it. This file is loaded automatically when Claude Code starts — use it to set a persona, language, response style, or any rules specific to your use case.
+
+```sh
+cp examples/CLAUDE.md ~/my-line-bot/CLAUDE.md
+# then edit ~/my-line-bot/CLAUDE.md
+```
+
+**Keeping context across restarts**
+
+Claude Code maintains a rolling `history.log` at `~/.claude/channels/line/history.log`. The included `CLAUDE.md` template instructs Claude to read it on startup, so conversation context is preserved even after the session restarts.
+
 ## Access control
 
 See **[ACCESS.md](./ACCESS.md)** for DM policies, group configuration, mention detection, and the full `access.json` schema.

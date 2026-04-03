@@ -96,6 +96,48 @@ claude --dangerously-load-development-channels server:line
 
 > 步驟 5–7 假設你在一個專用目錄（`~/my-line-bot/`）執行 Claude。該目錄下的 `CLAUDE.md` 會在 session 啟動時自動載入。
 
+## 使用方式
+
+設定完成後，Claude Code 會持續運行並監聽 LINE 訊息。
+
+**私訊**
+
+將機器人加為好友後傳訊息，Claude 會收到並在同一個對話回覆。就這樣。
+
+**群組**
+
+1. 將機器人加入 LINE 群組。
+2. 第一則訊息後，群組 ID 會出現在 `~/.claude/channels/line/unknown-groups.log`。
+3. 將它加入 `access.json` 的 `groups` 欄位：
+
+```json
+{
+  "dmPolicy": "allowlist",
+  "allowFrom": ["Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"],
+  "groups": {
+    "Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxx": {
+      "requireMention": true,
+      "allowFrom": []
+    }
+  }
+}
+```
+
+`requireMention: true` 表示只有在群組內 @ 機器人時才會回應。設為 `false` 則回應每一則訊息。
+
+**自訂 Claude 的行為**
+
+將 `examples/CLAUDE.md` 複製到你的工作目錄並編輯。Claude Code 啟動時會自動載入這個檔案——用它來設定角色、語言、回應風格或任何你需要的規則。
+
+```sh
+cp examples/CLAUDE.md ~/my-line-bot/CLAUDE.md
+# 然後編輯 ~/my-line-bot/CLAUDE.md
+```
+
+**重啟後保留對話脈絡**
+
+Claude Code 會在 `~/.claude/channels/line/history.log` 維護一個滾動的訊息記錄。內附的 `CLAUDE.md` 模板會指示 Claude 在啟動時讀取它，確保 session 重啟後對話脈絡不會中斷。
+
 ## 存取控制
 
 DM 政策、群組設定、提及偵測和完整的 `access.json` 格式說明，請見 **[ACCESS.md](./ACCESS.md)**。
