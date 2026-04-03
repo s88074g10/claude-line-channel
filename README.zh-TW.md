@@ -25,7 +25,20 @@ Claude Code 的 channel 系統讓訊息平台可以直接接入 Claude Code sess
 在 LINE Developers Console 的頻道頁面：
 - **Basic settings** 分頁 → 複製 **Channel secret**
 - **Messaging API** 分頁 → 點選「Issue」產生 **Channel access token（長期）** 並複製
-- 回到 LINE Official Account Manager → **自動回應訊息** → 關閉**自動回應** — 由 Claude 負責回覆
+
+回到 LINE Official Account Manager，在**設定**下依序設定三個頁面：
+
+**設定 → Messaging API** (`/setting/messaging-api`)
+- 將 **Webhook URL** 設為你的公開 HTTPS 端點（例如 `https://line-webhook.example.com/webhook`）
+- 點選**儲存**
+
+**設定 → 帳號設定** (`/setting`) — 僅群組功能需要
+- 在**功能切換**下，將**加入群組及多人聊天室**設為**接受邀請**
+
+**設定 → 回應設定** (`/setting/response`)
+- **Webhook**：開啟（讓 LINE 將事件傳送至你的 webhook URL）
+- **聊天回應方式**：設為**手動聊天**（不是「手動聊天 + 自動回應」）
+- **加入好友的歡迎訊息**：關閉 — Claude 透過 webhook 處理 follow 事件
 
 **2. 安裝 plugin。**
 
@@ -57,9 +70,24 @@ chmod 600 ~/.claude/channels/line/.env
 
 **4. 暴露 webhook 端點。**
 
-將 LINE 頻道的 webhook URL 設定為 `https://你的伺服器/webhook`。使用 nginx、Caddy 或任何反向代理將 HTTPS 流量轉發至 `http://localhost:3456`。
+使用 nginx、Caddy 或任何反向代理將 HTTPS 流量轉發至 `http://localhost:<LINE_WEBHOOK_PORT>`。nginx 範例設定：
 
-在 LINE Developers Console 驗證 webhook — 應回傳 HTTP 200。
+```nginx
+server {
+    listen 443 ssl;
+    server_name line-webhook.example.com;
+    # ... SSL 憑證設定 ...
+
+    location /webhook {
+        proxy_pass http://localhost:3456/webhook;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Line-Signature $http_x_line_signature;
+    }
+}
+```
+
+部署後，回到 LINE Official Account Manager 的**設定 → Messaging API**，貼上 URL 並點選**儲存**。再使用 LINE Developers Console 的**驗證**按鈕確認回傳 HTTP 200。
 
 **5. 建立 session CLAUDE.md（建議）。**
 

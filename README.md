@@ -25,7 +25,20 @@ As of September 2024, Messaging API channels can no longer be created directly f
 On the channel page in LINE Developers Console:
 - **Basic settings** tab → copy the **Channel secret**
 - **Messaging API** tab → click **Issue** to generate a **Channel access token (long-lived)** and copy it
-- In LINE Official Account Manager → **Auto-response messages** → turn off **Auto-reply messages** — Claude will handle replies
+
+Back in LINE Official Account Manager, configure three pages under **Settings**:
+
+**Settings → Messaging API** (`/setting/messaging-api`)
+- Set the **Webhook URL** to your public HTTPS endpoint (e.g. `https://line-webhook.example.com/webhook`)
+- Click **Save**
+
+**Settings → Account settings** (`/setting`) — only needed for group support
+- Under **Feature toggles**, set **Join groups and multi-person chats** to **Accept invitations**
+
+**Settings → Response settings** (`/setting/response`)
+- **Webhook**: ON (enables LINE to deliver events to your webhook URL)
+- **Chat response method**: set to **Manual chat** (not "Manual chat + Auto-response")
+- **Greeting message**: turn OFF — Claude handles the follow event via webhook instead
 
 **2. Install the plugin.**
 
@@ -57,9 +70,24 @@ chmod 600 ~/.claude/channels/line/.env
 
 **4. Expose the webhook.**
 
-Point your LINE channel's webhook URL at `https://your-server/webhook`. Use nginx, Caddy, or any reverse proxy to forward HTTPS to `http://localhost:3456`.
+Use nginx, Caddy, or any reverse proxy to forward HTTPS to `http://localhost:<LINE_WEBHOOK_PORT>`. Example nginx config:
 
-Verify in the LINE Developers Console — the webhook should return HTTP 200.
+```nginx
+server {
+    listen 443 ssl;
+    server_name line-webhook.example.com;
+    # ... SSL certificate config ...
+
+    location /webhook {
+        proxy_pass http://localhost:3456/webhook;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Line-Signature $http_x_line_signature;
+    }
+}
+```
+
+After deploying, go back to **Settings → Messaging API** in LINE Official Account Manager, paste the URL, and click **Save**. Then use the **Verify** button in LINE Developers Console to confirm it returns HTTP 200.
 
 **5. Set up a session CLAUDE.md (recommended).**
 
