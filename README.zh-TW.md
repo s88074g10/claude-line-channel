@@ -102,7 +102,7 @@ claude --dangerously-load-development-channels server:line
 
 **私訊**
 
-將機器人加為好友後傳訊息，Claude 會收到並在同一個對話回覆。就這樣。
+將機器人加為好友後傳訊息，plugin 會將訊息轉發給 Claude，Claude 會在同一個對話中直接回覆。除了在 `access.json` 的 `allowFrom` 填入你的用戶 ID 之外，不需要額外設定。
 
 **群組**
 

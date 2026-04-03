@@ -102,7 +102,7 @@ Once setup is complete, Claude Code runs as a persistent session that listens fo
 
 **DMs**
 
-Add the bot as a friend on LINE and send a message. Claude receives it and replies in the same chat. That's it.
+Add the bot as a friend on LINE and send it a message. The plugin forwards the message to Claude, which responds directly in the same conversation. No additional configuration is required beyond the allowlist entry in `access.json`.
 
 **Groups**
 
