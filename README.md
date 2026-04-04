@@ -94,7 +94,7 @@ After deploying, go back to **Settings → Messaging API** in LINE Official Acco
 Copy the included template to your working directory. Claude will read it on startup and know how to behave as a LINE bot — including reading `history.log` for context after restarts.
 
 ```sh
-cp ~/.claude/plugins/cache/claude-line-channel/line/*/examples/CLAUDE.md ~/my-line-bot/CLAUDE.md
+cp ~/.claude/plugins/cache/claude-line-channel/line/0.1.0/examples/CLAUDE.md ~/my-line-bot/CLAUDE.md
 ```
 
 Customize it to fit your use case (persona, language, rules, etc.).
@@ -130,7 +130,7 @@ Once setup is complete, Claude Code runs as a persistent session that listens fo
 
 **DMs**
 
-Add the bot as a friend on LINE and send it a message. The plugin forwards the message to Claude, which responds directly in the same conversation. No additional configuration is required beyond the allowlist entry in `access.json`.
+Add the bot as a friend on LINE and send a message. Claude receives it and replies in the same chat. That's it.
 
 **Groups**
 
@@ -197,7 +197,7 @@ Quick reference: LINE user IDs start with `U`, group IDs with `C`, room IDs with
 | `reply` | Send a text message to a DM or group chat. Takes `chat_id` + `text`. Auto-chunks long messages using the free Reply API (within 25 s of the inbound message), falls back to Push API. |
 | `get_content` | Download a media message (image/video/audio/file) sent by a LINE user to the inbox directory. Returns the file path; images also return an inline preview. |
 | `send_image` | Send an image to a LINE chat via a publicly accessible HTTPS URL. |
-| `upload_file` | Upload a file **from the inbox directory only** to gofile.io with a password and expiry. Returns the download link and password. |
+| `upload_file` | Upload a file to gofile.io with a password and expiry. Returns the download link and password. By default, only files inside the inbox directory are accepted; set `fullAccess: true` in `access.json` to allow any path on the host. |
 | `fetch_messages` | LINE does not expose a message history API for bots — this tool returns a note about that limitation. |
 
 ## Multiple sessions (line-router)
@@ -334,8 +334,8 @@ Things we discovered running this in production:
 ## Security
 
 - Webhook signature verified with **HMAC-SHA256** using constant-time comparison (no timing side-channel)
-- `upload_file` is restricted to the inbox directory — prompt injection via LINE messages cannot cause arbitrary file exfiltration
-- File upload passwords generated with `crypto.randomBytes` (96-bit entropy)
+- `upload_file` is restricted to the inbox directory by default — prompt injection via LINE messages cannot cause arbitrary file exfiltration. Set `fullAccess: true` in `access.json` only if you trust all users in `allowFrom` with full host access.
+- File upload passwords generated with `crypto.randomBytes` (96-bit entropy), stored as SHA-256 hash to match gofile's download-page verification
 - `.env` file chmod'd to `0600` on startup
 - Unknown group IDs sanitized before logging
 

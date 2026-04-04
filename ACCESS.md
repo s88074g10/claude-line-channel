@@ -48,7 +48,8 @@ LINE user IDs are not directly visible in the app. The easiest way to find them:
   },
   "mentionPatterns": ["^hey claude\\b"],
   "textChunkLimit": 5000,
-  "chunkMode": "newline"
+  "chunkMode": "newline",
+  "fullAccess": false
 }
 ```
 
@@ -62,6 +63,7 @@ LINE user IDs are not directly visible in the app. The easiest way to find them:
 | `mentionPatterns` | `string[]` | `[]` | Regex patterns that count as a mention (applied to message text) |
 | `textChunkLimit` | `number` | `5000` | Max characters per LINE message chunk |
 | `chunkMode` | `"length"` \| `"newline"` | `"newline"` | How to split long messages |
+| `fullAccess` | `boolean` | `false` | `true` = `upload_file` may access any path on the host; `false` = inbox directory only |
 
 ### Group policy fields
 
