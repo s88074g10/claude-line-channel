@@ -162,9 +162,22 @@ type LineMessageEvent = {
   }
 }
 
+type LinePostbackEvent = {
+  type: 'postback'
+  timestamp: number
+  replyToken?: string
+  source: LineSource
+  postback: {
+    data: string
+    params?: Record<string, string>
+  }
+}
+
+type LineEvent = LineMessageEvent | LinePostbackEvent
+
 type LineWebhookPayload = {
   destination: string
-  events: LineMessageEvent[]
+  events: LineEvent[]
 }
 
 // ---------------------------------------------------------------------------
@@ -713,6 +726,31 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ['chat_id'],
       },
     },
+    {
+      name: 'show_typing',
+      description: 'Show typing indicator ("...") in a LINE chat. Useful before long-running tasks (DB queries, ERP lookups). Auto-dismisses when next message is sent or after loadingSeconds.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          chat_id:        { type: 'string' },
+          loadingSeconds: { type: 'number', description: 'Seconds to show (5-60, default 20). Only multiples of 5 are valid per LINE API.' },
+        },
+        required: ['chat_id'],
+      },
+    },
+    {
+      name: 'send_flex',
+      description: 'Send a LINE Flex Message (rich card with buttons, columns, images). Use for business reports, KPI cards, selection menus. contents must be a valid Flex Message JSON (bubble or carousel).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          chat_id:  { type: 'string' },
+          altText:  { type: 'string', description: 'Fallback text shown in notifications (max 400 chars)' },
+          contents: { type: 'object', description: 'Flex Message contents (bubble or carousel object). See https://developers.line.biz/flex-simulator/' },
+        },
+        required: ['chat_id', 'altText', 'contents'],
+      },
+    },
   ],
 }))
 
@@ -948,6 +986,70 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
         }
       }
 
+      case 'show_typing': {
+        const chat_id = args.chat_id as string
+        const raw = Number(args.loadingSeconds ?? 20)
+        // LINE requires multiples of 5, range 5-60
+        const loadingSeconds = Math.min(60, Math.max(5, Math.round(raw / 5) * 5))
+        if (!KNOWN_CHAT_IDS.has(chat_id)) {
+          return {
+            content: [{ type: 'text', text: 'show_typing rejected: chat_id "' + chat_id + '" has not sent a message in this session.' }],
+            isError: true,
+          }
+        }
+        const res = await fetchWithTimeout(LINE_API + '/chat/loading/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+          body: JSON.stringify({ chatId: chat_id, loadingSeconds }),
+        })
+        if (!res.ok) throw new Error(await lineErrorSummary(res, 'show_typing'))
+        return { content: [{ type: 'text', text: 'typing indicator shown for ' + loadingSeconds + 's' }] }
+      }
+
+      case 'send_flex': {
+        const chat_id = args.chat_id as string
+        const altText = args.altText as string
+        const contents = args.contents as Record<string, unknown>
+        if (!KNOWN_CHAT_IDS.has(chat_id)) {
+          return {
+            content: [{ type: 'text', text: 'send_flex rejected: chat_id "' + chat_id + '" has not sent a message in this session.' }],
+            isError: true,
+          }
+        }
+        if (typeof altText !== 'string' || altText.length === 0) {
+          throw new Error('send_flex: altText is required')
+        }
+        if (!contents || typeof contents !== 'object') {
+          throw new Error('send_flex: contents must be a Flex Message JSON object')
+        }
+        const message = { type: 'flex', altText: altText.slice(0, 400), contents }
+
+        // Try Reply API first (free quota) if reply token is still valid
+        const entry = REPLY_TOKENS.get(chat_id)
+        const tokenValid = entry && entry.expiresAt > Date.now()
+        if (tokenValid && entry) {
+          const res = await fetchWithTimeout(LINE_API + '/message/reply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+            body: JSON.stringify({ replyToken: entry.token, messages: [message] }),
+          })
+          if (res.ok) {
+            REPLY_TOKENS.delete(chat_id)
+            return { content: [{ type: 'text', text: 'flex sent via reply (free quota)' }] }
+          }
+          // Fall through to push on failure
+        }
+
+        // Fallback: Push API (counts against quota)
+        const res = await fetchWithTimeout(LINE_API + '/message/push', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN },
+          body: JSON.stringify({ to: chat_id, messages: [message] }),
+        })
+        if (!res.ok) throw new Error(await lineErrorSummary(res, 'send_flex'))
+        return { content: [{ type: 'text', text: 'flex sent via push (quota)' }] }
+      }
+
       default:
         return { content: [{ type: 'text', text: 'unknown tool: ' + req.params.name }], isError: true }
     }
@@ -1103,6 +1205,63 @@ async function handleInbound(event: LineMessageEvent): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Postback event handler (Flex Message button clicks, datetime pickers, etc.)
+// ---------------------------------------------------------------------------
+
+async function handlePostback(event: LinePostbackEvent): Promise<void> {
+  const access = loadAccess()
+  const src = event.source
+
+  // Access control (same rules as message events)
+  if (access.dmPolicy === 'disabled') return
+  if (src.type === 'user') {
+    if (access.allowFrom.length > 0 && !access.allowFrom.includes(src.userId)) return
+  } else {
+    const chatId = src.type === 'group' ? src.groupId : src.roomId
+    const policy = access.groups[chatId]
+    if (!policy) return
+    const groupAllow = policy.allowFrom ?? []
+    if (groupAllow.length > 0 && !groupAllow.includes(src.userId)) return
+  }
+
+  const chat_id = src.type === 'user'  ? src.userId
+                : src.type === 'group' ? src.groupId
+                : src.roomId
+  const ts = new Date(event.timestamp).toISOString()
+
+  if (event.replyToken) storeReplyToken(chat_id, event.replyToken)
+  rememberChatId(chat_id)
+
+  // Build content that Claude will see. Include the postback data plus any
+  // datetimepicker params so Claude has full context of the button click.
+  const data = event.postback.data ?? ''
+  const params = event.postback.params
+  const paramsStr = params && Object.keys(params).length > 0
+    ? ' params=' + JSON.stringify(params)
+    : ''
+  const content = '[POSTBACK] data=' + JSON.stringify(data) + paramsStr
+
+  appendHistoryLog(
+    ts + ' [' + src.type + ':' + chat_id + '] <' + src.userId + '>: ' + escapeLogText(content),
+  )
+
+  mcp.notification({
+    method: 'notifications/claude/channel',
+    params: {
+      content,
+      meta: {
+        chat_id,
+        user:        src.userId,
+        ts,
+        source_type: src.type,
+        event_type:  'postback',
+        postback_data: data,
+      },
+    },
+  }).catch(e => process.stderr.write('line channel: postback notification failed: ' + e + '\n'))
+}
+
+// ---------------------------------------------------------------------------
 // Version check (GitHub releases) — fire-and-forget, 24h cache, fail-silent
 // ---------------------------------------------------------------------------
 
@@ -1238,10 +1397,15 @@ const httpServer = Bun.serve({
       return new Response('Bad Request', { status: 400 })
     }
     for (const event of payload.events) {
-      if (event.type !== 'message') continue
-      handleInbound(event).catch(e =>
-        process.stderr.write('line channel: handleInbound error: ' + e + '\n'),
-      )
+      if (event.type === 'message') {
+        handleInbound(event).catch(e =>
+          process.stderr.write('line channel: handleInbound error: ' + e + '\n'),
+        )
+      } else if (event.type === 'postback') {
+        handlePostback(event).catch(e =>
+          process.stderr.write('line channel: handlePostback error: ' + e + '\n'),
+        )
+      }
     }
     return new Response('OK', { status: 200 })
   },
