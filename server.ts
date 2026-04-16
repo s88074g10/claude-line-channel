@@ -524,6 +524,7 @@ function matchFastPath(event: LineEvent): string | null {
     if (data === 'action=sales_today') return 'sales-today'
     if (data === 'action=sales_yesterday') return 'sales-yesterday'
     if (data === 'action=sales_week') return 'sales-week'
+    if (data === 'action=sales_month') return 'sales-month'
     return null
   }
   if (event.type === 'message' && event.message.type === 'text') {
@@ -534,6 +535,7 @@ function matchFastPath(event: LineEvent): string | null {
     if (/^(今日業績|今天業績|今日|今天賣多少|今天賣了多少|今天|本日業績)$/.test(text)) return 'sales-today'
     if (/^(昨日業績|昨天業績|昨日|昨天|昨天賣多少)$/.test(text)) return 'sales-yesterday'
     if (/^(本週業績|本周業績|這週業績|這周業績|本週|本周|這週|這周|這星期|這星期業績)$/.test(text)) return 'sales-week'
+    if (/^(本月業績|這個月業績|本月|這個月|當月業績|當月)$/.test(text)) return 'sales-month'
     return null
   }
   return null
